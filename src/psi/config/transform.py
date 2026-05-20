@@ -364,18 +364,19 @@ class SimpleRepackTransform(LerobotRepackTransform):
 
     pad_action_dim: int | None = None
     pad_state_dim: int | None = None
+    state_key: str = "observation.state"
 
     def delta_timestamps(self, fps: int):
         return {
             "observation.images.egocentric": [-t/fps for t in range(self.num_past_frames, -1, -1)],
-            "states": [-t/fps for t in range(self.num_past_frames, -1, -1)],
+            self.state_key: [-t/fps for t in range(self.num_past_frames, -1, -1)],
             "action": [t/fps for t in range(self.action_chunk_size)]
         }
- 
+
 
     def __call__(self, data: dict[str, Any], **kwargs) -> dict[str, Any]:
         image_key = "observation.images.egocentric"
-        states = data["states"].numpy() # (To, Ds)
+        states = data[self.state_key].numpy() # (To, Ds)
         actions = data["action"].numpy() # (Tp, Da)
         action_is_pad = data["action_is_pad"].numpy() # (Ta,) 
         pad_mask = np.ones_like(actions) * (1. - action_is_pad[...,None].astype(np.float32))

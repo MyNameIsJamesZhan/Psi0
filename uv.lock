@@ -872,16 +872,6 @@ wheels = [
 ]
 
 [[package]]
-name = "flash-attn"
-version = "2.7.4.post1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "einops" },
-    { name = "torch" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/11/34/9bf60e736ed7bbe15055ac2dab48ec67d9dbd088d2b4ae318fd77190ab4e/flash_attn-2.7.4.post1.tar.gz", hash = "sha256:f03485c9a49a4d68d0733acdcad80ab0e72afa025a777fdc2966ceccf9d51765", size = 5986610, upload-time = "2025-01-30T06:39:51.93Z" }
-
-[[package]]
 name = "flask"
 version = "3.1.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2795,7 +2785,6 @@ dependencies = [
 psi = [
     { name = "accelerate" },
     { name = "deepspeed" },
-    { name = "flash-attn" },
     { name = "lerobot" },
     { name = "peft" },
     { name = "qwen-vl-utils" },
@@ -2852,7 +2841,6 @@ requires-dist = [
 psi = [
     { name = "accelerate", specifier = "==1.7.0" },
     { name = "deepspeed", specifier = "==0.17.1" },
-    { name = "flash-attn", specifier = "==2.7.4.post1" },
     { name = "lerobot", git = "https://github.com/songlin/lerobot.git?rev=09929d8057b044b53aecaf5c6d7eb71f99e8beb9" },
     { name = "peft", specifier = "==0.17.1" },
     { name = "qwen-vl-utils", specifier = "==0.0.14" },

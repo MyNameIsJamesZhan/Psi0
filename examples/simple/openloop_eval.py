@@ -26,7 +26,7 @@ os.chdir(project_root)
 from psi.utils import parse_args_to_tyro_config, seed_everything
 from psi.config.config import LaunchConfig
 
-CKPT_STEP = 40000
+CKPT_STEP = 12960
 
 # Action component labels and split boundaries (36-dim action)
 LABELS = [

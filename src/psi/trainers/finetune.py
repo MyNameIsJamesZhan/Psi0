@@ -376,8 +376,8 @@ class FinetuneTrainer(Trainer):
         self.train_loss_tracker = step_loss = losses["loss"].detach().item()
 
         return (self.accelerator.sync_gradients, {
-            "lr_act": self.lr, 
-            "grad_norm_act": self._grad_norm_act, # type: ignore
+            "lr_act": self.lr,
+            "grad_norm_act": getattr(self, "_grad_norm_act", None),
             "loss": step_loss
         })
 
