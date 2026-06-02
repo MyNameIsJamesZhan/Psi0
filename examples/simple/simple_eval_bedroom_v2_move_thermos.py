@@ -100,6 +100,62 @@ def _install_eval_patches() -> None:
     _lr.get_episode_lerobot = _patched_get
 
 
+def _install_video_camera_filter(allowed: set[str]) -> None:
+    # 3) VideoRecorder filter: only save the cameras whose obs keys are in
+    #    `allowed`. The policy still receives ALL trained cameras — this
+    #    purely affects which per-camera mp4s the recorder writes.
+    #
+    # Implementation: skip writer construction for non-allowed keys (instead
+    # of releasing them afterward). Releasing a fresh VideoWriter writes a
+    # 0-second placeholder mp4 + the _failed/_succeeded rename, which is
+    # exactly what we don't want.
+    if not allowed:
+        return
+    import os as _os
+    import shutil as _shutil
+    from simple.envs.wrappers import video_recorder as _vr
+    from simple.envs.video_writer import VideoWriter as _VW
+    import gymnasium as _gym
+
+    def _filtered_reset(self, **kwargs):
+        observations, info = _gym.Wrapper.reset(self, **kwargs)
+
+        if kwargs.get("options") is not None:
+            if kwargs["options"].get("task_id") is not None:
+                self.name_prefix = kwargs["options"]["task_id"]
+                video_folder = f"{self.work_dir}/{self.name_prefix}"
+                if _os.path.exists(video_folder):
+                    _shutil.rmtree(video_folder, ignore_errors=True)
+                    print(f"Overwriting existing videos at {video_folder} folder")
+                _os.makedirs(video_folder, exist_ok=True)
+
+        self.video_writers = {}
+        kept, dropped = [], []
+        for key, subspace in self.unwrapped.observation_space.items():
+            if len(subspace.shape) != 3 or subspace.shape[-1] != 3:
+                continue
+            if key not in allowed:
+                dropped.append(key)
+                continue
+            self.video_writers[key] = _VW(
+                f"{self.work_dir}/{self.name_prefix}/{key}.mp4",
+                self.framerate,
+                subspace.shape[:2][::-1],
+                write_png=self.write_png,
+            )
+            self.video_writers[key].write(observations[key])
+            kept.append(key)
+        if dropped:
+            print(f"  [eval-video] kept={sorted(kept)} dropped={sorted(dropped)}")
+
+        self._is_released = False
+        return observations, info
+
+    _vr.VideoRecorder.reset = _filtered_reset
+    # step() already iterates self.video_writers, which we've filtered above,
+    # so no patch is needed there.
+
+
 _install_eval_patches()
 
 
@@ -169,9 +225,14 @@ def main() -> int:
     parser.add_argument("--num-episodes", type=int, default=3)
     parser.add_argument("--episode-start", type=int, default=0)
     parser.add_argument("--num-workers", type=int, default=1)
-    parser.add_argument("--max-episode-steps", type=int, default=360)
+    parser.add_argument("--max-episode-steps", type=int, default=1500)
     parser.add_argument("--success-criteria", type=float, default=0.9)
-    parser.add_argument("--action-exec-horizon", type=int)
+    # Must be < the server's action_chunk_size (30): RTC needs the executed
+    # horizon to leave an overlap of unexecuted actions to carry forward as
+    # prev_actions. If exec_horizon == chunk_size there is no overlap, so the
+    # first continuation call hits the server assertion "prev_actions ... must
+    # be provided" and the rollout crashes (~step 90). 24 is the deployment value.
+    parser.add_argument("--action-exec-horizon", type=int, default=24)
     parser.add_argument("--wait-tries", type=int, default=6000)
     parser.add_argument("--wait-sleep-s", type=float, default=0.1)
     parser.add_argument("--server-log", help="Optional path for server stdout/stderr.")
@@ -184,8 +245,14 @@ def main() -> int:
     parser.add_argument("--no-headless", dest="headless", action="store_false")
     parser.add_argument("--save-video", action="store_true", default=True)
     parser.add_argument("--no-save-video", dest="save_video", action="store_false")
+    # Comma-separated obs-keys to record as .mp4. Empty string = record all
+    # cameras. Default: head_stereo_left only.
+    parser.add_argument("--video-cameras", default="head_stereo_left")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+
+    allowed_video_cams = {c.strip() for c in args.video_cameras.split(",") if c.strip()}
+    _install_video_camera_filter(allowed_video_cams)
 
     port = args.port or _pick_free_port()
     server_cmd = _build_server_cmd(args, port)
