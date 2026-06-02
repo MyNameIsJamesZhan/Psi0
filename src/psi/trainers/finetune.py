@@ -239,7 +239,9 @@ class FinetuneTrainer(Trainer):
             "shuffle": True,
             "generator": g,
             "worker_init_fn": worker_init_fn,
-            "persistent_workers": True,  # prefetch_factor=4
+            "persistent_workers": True,
+            "prefetch_factor": 4,
+            "pin_memory": True,
         }
 
         val_dataloader_kwargs = {

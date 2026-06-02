@@ -261,8 +261,9 @@ def train(config: LaunchConfig):
                         global_step % config.train.validation_steps == 0 or 
                         global_step == trainer.max_training_steps - 1
                     ) :
-                    gc.collect()
-                    torch.cuda.empty_cache()
+                    if config.train.empty_cache_at_val:
+                        gc.collect()
+                        torch.cuda.empty_cache()
                     trainer.set_eval()
                     with torch.no_grad(), torch.autocast(
                         device_type="cuda", dtype=trainer.dtype

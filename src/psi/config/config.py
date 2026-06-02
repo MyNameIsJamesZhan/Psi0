@@ -54,6 +54,11 @@ class TrainConfig(BaseModel):
     checkpointing_steps: int = 5000
     max_checkpoints_to_keep: int | None = None
     validation_steps: int = 50
+    # If False, skip the gc.collect()/torch.cuda.empty_cache() before validation.
+    # Keeping the allocator's reserved memory pinned prevents a neighbor process on
+    # a shared GPU from grabbing freed memory during the eval window (which would
+    # OOM us on re-growth). Default True preserves the original behavior.
+    empty_cache_at_val: bool = True
 
     learning_rate: float = 1e-5
     # linear, cosine, cosine_with_restarts, polynomial, constant, constant_with_warmup

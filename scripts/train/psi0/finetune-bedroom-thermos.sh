@@ -9,13 +9,19 @@ source .env
 source .venv-psi/bin/activate
 
 NPROC_PER_NODE=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
-# global batch = 128 = train_batch_size(8) * NPROC * grad_accum
-GRAD_ACCUM=$((16 / NPROC_PER_NODE))
+TRAIN_BATCH_SIZE=64
+GLOBAL_BATCH_SIZE=128
+# grad_accum derived to hit global batch = train_batch_size * NPROC * grad_accum
+GRAD_ACCUM=$((GLOBAL_BATCH_SIZE / (TRAIN_BATCH_SIZE * NPROC_PER_NODE)))
 ulimit -n 65535
-echo "Training with $NPROC_PER_NODE GPUs (CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES), grad_accum=$GRAD_ACCUM"
+echo "Training with $NPROC_PER_NODE GPUs (CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES), batch=$TRAIN_BATCH_SIZE, grad_accum=$GRAD_ACCUM, global=$((TRAIN_BATCH_SIZE * NPROC_PER_NODE * GRAD_ACCUM))"
 
-DATA_ROOT="/data/junyingw/HumanoidEverywhere/third_party/SIMPLE/data/training/bedroom_v2_move_thermos_final"
+DATA_ROOT="${DATA_ROOT:-/data2/yunkai/HumanoidEverywhere/third_party/simple-3dgs/data/training/bedroom_v2_move_thermos_final}"
 exp="${exp:-bedroom-thermos-v2}"
+# To resume an interrupted run, set RESUME_TIMESTAMP to that run's timestamp
+# (the trailing .XXXXXXXXXX in its run dir name). It reuses the same run dir and
+# loads the latest ckpt_* in it (restoring step/optimizer/scheduler/RNG).
+RESUME_TIMESTAMP="${RESUME_TIMESTAMP:-}"
 
 echo "Data root: $DATA_ROOT"
 echo "Experiment name: $exp"
@@ -27,14 +33,14 @@ finetune_simple_psi0_config \
 --train.name=finetune \
 --train.data_parallel=ddp \
 --train.mixed_precision=bf16 \
---train.train_batch_size=8 \
+--train.train_batch_size=$TRAIN_BATCH_SIZE \
 --train.max_checkpoints_to_keep=3 \
 --train.gradient_accumulation_steps=$GRAD_ACCUM \
 --train.learning_rate=1e-4 \
 --train.max_training_steps=40000 \
 --train.warmup_ratio=None \
 --train.warmup_steps=1000 \
---train.checkpointing_steps=10000 \
+--train.checkpointing_steps=2000 \
 --train.validation_steps=500 \
 --train.val_num_batches=20 \
 --train.max_grad_norm=1.0 \
@@ -42,6 +48,8 @@ finetune_simple_psi0_config \
 --train.lr_scheduler_kwargs.weight_decay=1e-6 \
 --train.lr_scheduler_kwargs.betas 0.95 0.999 \
 --log.report_to=wandb \
+--log.log_freq=10 \
+--train.no-empty-cache-at-val \
 --data.root_dir=$DATA_ROOT \
 --data.train-repo-ids=train \
 --data.val-repo-ids=val \
@@ -76,6 +84,11 @@ finetune_simple_psi0_config \
 --model.rtc \
 --model.max-delay=8
 "
+
+if [ -n "$RESUME_TIMESTAMP" ]; then
+    echo "Resuming run with timestamp $RESUME_TIMESTAMP (latest ckpt in its run dir)"
+    args="$args --train.resume_from_checkpoint=latest --timestamp=$RESUME_TIMESTAMP"
+fi
 
 torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=29500 scripts/train.py \
     ${args}
