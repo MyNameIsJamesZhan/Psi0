@@ -23,7 +23,39 @@ CKPT_STEP="${CKPT_STEP:?set CKPT_STEP (e.g. 26000)}"
 
 TASK="${TASK:-simple/G1WholebodyBedroomMoveThermos-v0}"
 SPLIT="${SPLIT:-test}"
-DATA_DIR="${DATA_DIR:-$SG_DIR/data/training/bedroom_v2_move_thermos_final/$SPLIT}"
+# Episodes (incl. per-episode environment_config) are loaded from here. Must be
+# the SAME dataset the checkpoint trained on, else the restored scene/initial
+# state won't match what the policy saw. Default = the bedroom grasp-thermos
+# held-out test split (what the past=N finetunes train on).
+DATA_DIR="${DATA_DIR:-$SG_DIR/data/training/bedroom_v2_grasp_thermos_psi0/$SPLIT}"
+
+# --- Train/eval initial-state alignment (direction B) ----------------------
+# The recorded trajectories start with the robot ALREADY at the table (datagen
+# drops the walk-up), but env_conf restores the far spawn (X≈1.2). Without this,
+# the policy is dropped 1 m back into a state it never saw in training and just
+# flails. SIMPLE_TABLE_SPAWN_X teleports the robot to a table-front X at reset so
+# the grasp skill is evaluated from the trained initial distribution. Unset it
+# (SIMPLE_TABLE_SPAWN_X= ) to fall back to the raw env_conf spawn.
+# 0.60 was calibrated by rendering head_stereo_left at reset for several X and
+# matching the framing of the recorded training frame 0 (near table edge at the
+# bottom of frame). Override to retune if the robot/table geometry changes.
+export SIMPLE_TABLE_SPAWN_X="${SIMPLE_TABLE_SPAWN_X-0.60}"
+
+# Instruction alignment: this task natively emits the *move* instruction, but the
+# bedroom grasp finetunes train on "pick up the thermos from the nightstand."
+# The System-2 VLM is language-conditioned, so eval must feed the trained prompt.
+# Unset (SIMPLE_INSTRUCTION_OVERRIDE= ) to use the task's native instruction.
+export SIMPLE_INSTRUCTION_OVERRIDE="${SIMPLE_INSTRUCTION_OVERRIDE-pick up the thermos from the nightstand.}"
+
+# Where rollout videos + eval_stats land: $SG_DIR/$EVAL_DIR/psi0/$EXP_NAME/
+#   EVAL_DIR  - root (relative to the SIMPLE client CWD = $SG_DIR)
+#   EXP_NAME  - per-experiment leaf; defaults to the run-dir name minus the
+#               trailing .<timestamp>, so each checkpoint's eval gets its own
+#               dir instead of all runs clobbering a single split folder.
+# For data_format=lerobot the SIMPLE client uses this leaf ONLY for the output
+# path (episodes are loaded from --data-dir), so it's safe to put EXP_NAME here.
+EVAL_DIR="${EVAL_DIR:-data/evals}"
+EXP_NAME="${EXP_NAME:-$(basename "$RUN_DIR" | sed -E 's/\.[0-9]{10}$//')}"
 SIM_MODE="${SIM_MODE:-mujoco_gsplat}"
 PORT="${PORT:-22085}"
 ACTION_EXEC_HORIZON="${ACTION_EXEC_HORIZON:-24}"
@@ -31,6 +63,11 @@ SERVE_GPU="${SERVE_GPU:-8}"
 SIM_GPU="${SIM_GPU:-8}"
 NUM_EPISODES="${NUM_EPISODES:-1}"
 MAX_EPISODE_STEPS="${MAX_EPISODE_STEPS:-300}"
+# Global index of the first dataset episode to evaluate. Episodes evaluated are
+# range(EPISODE_START, dataset_size)[:NUM_EPISODES]. Output dirs are named by the
+# GLOBAL episode index (episode_<idx>), so e.g. EPISODE_START=3 resumes at
+# episode_3 without clobbering an earlier episode_0..2 run. Default 0.
+EPISODE_START="${EPISODE_START:-0}"
 
 LOGDIR="${LOGDIR:-/tmp/psi0_closeloop}"
 mkdir -p "$LOGDIR"
@@ -40,6 +77,7 @@ EVAL_LOG="$LOGDIR/eval_ckpt${CKPT_STEP}_${SPLIT}.log"
 echo "[closeloop] RUN_DIR=$RUN_DIR  CKPT_STEP=$CKPT_STEP"
 echo "[closeloop] TASK=$TASK  SPLIT=$SPLIT  DATA_DIR=$DATA_DIR"
 echo "[closeloop] SERVE_GPU=$SERVE_GPU  SIM_GPU=$SIM_GPU  PORT=$PORT  sim_mode=$SIM_MODE"
+echo "[closeloop] output dir: $SG_DIR/$EVAL_DIR/psi0/$EXP_NAME"
 echo "[closeloop] server log: $SERVER_LOG   eval log: $EVAL_LOG"
 
 # ----------------------------------------------------------------------------
@@ -102,11 +140,13 @@ export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
 # NOTE: call the venv's `eval` console script by full path — `eval` is a bash
 # builtin and would otherwise shadow it (treating the task id as a command).
 EVAL_BIN="$SG_DIR/.venv/bin/eval"
-CUDA_VISIBLE_DEVICES="$SIM_GPU" "$EVAL_BIN" "$TASK" psi0 "$SPLIT" \
+CUDA_VISIBLE_DEVICES="$SIM_GPU" "$EVAL_BIN" "$TASK" psi0 "$EXP_NAME" \
     --host=localhost --port="$PORT" \
     --data-format=lerobot --data-dir="$DATA_DIR" \
+    --eval-dir="$EVAL_DIR" \
     --sim-mode="$SIM_MODE" --headless \
-    --num-episodes="$NUM_EPISODES" --max-episode-steps="$MAX_EPISODE_STEPS" \
+    --num-episodes="$NUM_EPISODES" --episode-start="$EPISODE_START" \
+    --max-episode-steps="$MAX_EPISODE_STEPS" \
     --save-video 2>&1 | tee "$EVAL_LOG"
 
-echo "[closeloop] eval finished. rollout videos under $SG_DIR/data/evals/psi0/$SPLIT/"
+echo "[closeloop] eval finished. rollout videos under $SG_DIR/$EVAL_DIR/psi0/$EXP_NAME/"
