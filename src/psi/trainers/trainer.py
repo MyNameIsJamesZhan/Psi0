@@ -297,12 +297,12 @@ class Trainer(ABC):
 
     @property
     def run_name(self) -> str:
-        run_name = (
-            f"{self.cfg.exp}{self.task_run_name}"
-            f".b{self.global_train_batch_size}.gpus{overwatch.world_size()}"
-        )
-
-        run_name = f"{run_name}.{self.timestamp}"
+        # Bare run name: just the experiment id + timestamp. The timestamp keeps
+        # re-runs of the same `exp` from clobbering each other's .runs/ dir and
+        # checkpoints. The descriptive suffix (dataset/scheduler/lr/.b/.gpus) that
+        # used to be appended here lives in `task_run_name` + the global config,
+        # so nothing is lost — it's just no longer baked into the directory name.
+        run_name = f"{self.cfg.exp}.{self.timestamp}"
         if self.cfg.debug:
             run_name = f"debug-{run_name}"
         return run_name
