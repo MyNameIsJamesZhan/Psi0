@@ -39,6 +39,35 @@ def _auto_tag_run(run_name: str):
     subprocess.run(["git", "tag", run_name], check=False)
     # subprocess.run(["git", "push", "--tags"], check=True)
 
+def _eval_metric_value(eval_losses: dict, spec: str):
+    """Resolve an early-stop metric spec against the trainer's eval outputs.
+
+    `spec` is either a single key (e.g. "loss", "err_l1_arm_joints") or a weighted
+    expression such as "0.6*err_l1_arm_joints+0.4*err_l1_hand_joints". The value
+    returned is the weighted AVERAGE: sum(w_i * metric_i) / sum(w_i). A bare key has
+    weight 1.0, so a single-key spec just returns that metric. Returns None if any
+    referenced key is absent from `eval_losses` (caller then skips the check).
+
+    NOTE: this averages the metrics in their *raw* (denormalized) units, so a larger-
+    magnitude component dominates unless its weight compensates.
+    """
+    terms = []
+    for raw in spec.split("+"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if "*" in raw:
+            w_str, key = raw.split("*", 1)
+            terms.append((float(w_str.strip()), key.strip()))
+        else:
+            terms.append((1.0, raw))
+    if not terms or any(k not in eval_losses for _, k in terms):
+        return None
+    wsum = sum(w for w, _ in terms)
+    if wsum == 0:
+        return None
+    return sum(w * eval_losses[k] for w, k in terms) / wsum
+
 def _initialize_accelerator(trainer: Trainer) -> Accelerator:
     os.makedirs(trainer.project_dir, exist_ok=True)
     logging_dir = os.path.join(trainer.project_dir, trainer.cfg.log.logging_dir)
@@ -230,6 +259,18 @@ def train(config: LaunchConfig):
     # skip_resumed_steps = False
     skip = 0
 
+    # early stopping state (opt-in via config.train.early_stop_patience)
+    es_patience = config.train.early_stop_patience
+    es_enabled = es_patience is not None and es_patience > 0
+    es_best_metric = float("inf")
+    es_wait = 0
+    should_early_stop = False
+    if es_enabled:
+        overwatch.info(
+            f"Early stopping enabled: metric='{config.train.early_stop_metric}', "
+            f"patience={es_patience}, min_delta={config.train.early_stop_min_delta}"
+        )
+
     for epoch in range(epoch_start, MAX_TRAINING_EPOCHS):
         trainer.next_epoch(epoch)
         accelerator.wait_for_everyone()
@@ -293,6 +334,33 @@ def train(config: LaunchConfig):
                             except ValueError:
                                 overwatch.warning_once("Even I can not save you.")
 
+                    # early stopping decision, reduced across ranks to avoid deadlock
+                    if es_enabled and eval_losses is not None:
+                        metric_key = config.train.early_stop_metric
+                        current = _eval_metric_value(eval_losses, metric_key)
+                        if current is None:
+                            overwatch.warning_once(
+                                f"[early-stop] metric '{metric_key}' not in eval outputs "
+                                f"{list(eval_losses.keys())}; skipping early-stop checks."
+                            )
+                        else:
+                            if current < es_best_metric - config.train.early_stop_min_delta:
+                                es_best_metric = current
+                                es_wait = 0
+                            else:
+                                es_wait += 1
+                            local_stop = 1.0 if es_wait >= es_patience else 0.0
+                            stop_t = accelerator.reduce(
+                                torch.tensor(local_stop, device=accelerator.device),
+                                reduction="max",
+                            )
+                            should_early_stop = bool(stop_t.item() > 0)
+                            if overwatch.is_rank_zero():
+                                overwatch.info(
+                                    f"[early-stop] {metric_key}={current:.6f} "
+                                    f"best={es_best_metric:.6f} wait={es_wait}/{es_patience}"
+                                )
+
                 progress_bar.update()
                 progress_bar.set_postfix(dict(loss=losses["loss"], lr=nice(trainer.lr)))
                 global_step += 1
@@ -300,6 +368,22 @@ def train(config: LaunchConfig):
             if global_step >= trainer.max_training_steps:
                 if overwatch.is_rank_zero():
                     tqdm.write("Training has reached maximum steps.")
+                is_max_train_steps_reached = True  # set to break outer loop
+                break
+
+            if should_early_stop:
+                if overwatch.is_rank_zero():
+                    tqdm.write(
+                        f"Early stopping at step {global_step}: "
+                        f"'{config.train.early_stop_metric}' did not improve for "
+                        f"{es_patience} validations (best={es_best_metric:.6f})."
+                    )
+                # persist the stopped model so it is recoverable
+                accelerator.wait_for_everyone()
+                save_path = trainer.save_checkpoint(global_step)
+                accelerator.wait_for_everyone()
+                if overwatch.is_rank_zero():
+                    tqdm.write(f"Saved early-stop checkpoint to {save_path}")
                 is_max_train_steps_reached = True  # set to break outer loop
                 break
 

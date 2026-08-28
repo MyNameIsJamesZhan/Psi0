@@ -60,6 +60,19 @@ class TrainConfig(BaseModel):
     # OOM us on re-growth). Default True preserves the original behavior.
     empty_cache_at_val: bool = True
 
+    # Early stopping (opt-in). Disabled when patience is None/0. Evaluated at each
+    # validation: if the monitored metric (lower is better) fails to improve by more
+    # than `early_stop_min_delta` for `early_stop_patience` consecutive validations,
+    # training stops. The stop decision is reduced across ranks so DDP/FSDP cannot
+    # deadlock. `early_stop_metric` is either a single key in the trainer's eval dict
+    # (e.g. "loss", "err_l1_arm_joints") or a weighted average expression over several
+    # keys, e.g. "0.6*err_l1_arm_joints+0.4*err_l1_hand_joints" (value = sum(w*metric)
+    # / sum(w); averaged in raw units, so the larger-magnitude term dominates unless
+    # its weight compensates).
+    early_stop_patience: int | None = None
+    early_stop_metric: str = "loss"
+    early_stop_min_delta: float = 0.0
+
     learning_rate: float = 1e-5
     # linear, cosine, cosine_with_restarts, polynomial, constant, constant_with_warmup
     lr_scheduler_type: str = "cosine_with_min_lr"
