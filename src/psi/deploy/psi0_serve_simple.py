@@ -172,6 +172,11 @@ class Server:
         self.app = FastAPI()
         self.app.post("/act")(self.predict_action)
         self.app.get("/health")(lambda: JSONResponse(content={"status": "ok"}))
+        # Expose the checkpoint's observation window so the eval client can buffer and
+        # send the matching number of past frames without manual configuration.
+        self.app.get("/config")(lambda: JSONResponse(content={
+            "num_past_frames": int(getattr(self.repack_transform, "num_past_frames", 0)),
+        }))
         overwatch.info(f"Server listens on {host}:{port}")
         try:
             uvicorn.run(self.app, host=host, port=port)

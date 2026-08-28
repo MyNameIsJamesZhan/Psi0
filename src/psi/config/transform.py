@@ -376,21 +376,38 @@ class SimpleRepackTransform(LerobotRepackTransform):
 
     def __call__(self, data: dict[str, Any], **kwargs) -> dict[str, Any]:
         image_key = "observation.images.egocentric"
-        states = data[self.state_key].numpy() # (To, Ds)
+        # With num_past_frames>0, delta_timestamps stacks the egocentric image along a
+        # leading time axis -> (To, C, H, W), ordered oldest -> current. With
+        # num_past_frames=0 it stays (C, H, W). Emit one PIL frame per timestep so the
+        # VLM receives the full observation history (oldest first, current last).
+        imgs = data[image_key]
+        if hasattr(imgs, "ndim") and imgs.ndim == 4:
+            observations = [pt_to_pil(imgs[t], normalized=False) for t in range(imgs.shape[0])]
+        else:
+            observations = [pt_to_pil(imgs, normalized=False)]
+
+        states = data[self.state_key].numpy() # (To, Ds); past frames stack the time axis
+        if states.ndim == 1:
+            states = states[None]
+        # Image history only: feed just the CURRENT proprioceptive state. The action
+        # expert's obs path appends a single attention-mask column regardless of To
+        # (see ObservationProjection.tokenize_obs), and past proprio is the main driver
+        # of imitation "copycat" failures. Visual history flows through `observations`.
+        states = states[-1:]
         actions = data["action"].numpy() # (Tp, Da)
-        action_is_pad = data["action_is_pad"].numpy() # (Ta,) 
+        action_is_pad = data["action_is_pad"].numpy() # (Ta,)
         pad_mask = np.ones_like(actions) * (1. - action_is_pad[...,None].astype(np.float32))
 
         states, _ = pad_to_len(states, self.pad_state_dim) if self.pad_state_dim is not None else (states, None)
         if self.pad_action_dim is not None:
-            actions, _ = pad_to_len(actions, self.pad_action_dim) 
+            actions, _ = pad_to_len(actions, self.pad_action_dim)
             mask,_ = pad_to_len(pad_mask, self.pad_action_dim)
         else:
             mask = np.ones_like(actions, dtype=np.float32)
 
         return {
-            "observations": [pt_to_pil(data[image_key],normalized=False)], # single view
-            "states": states.astype(np.float32), # (To, Do)
+            "observations": observations, # current (+ past) frames, oldest -> newest
+            "states": states.astype(np.float32), # (1, Do)
             "actions": actions.astype(np.float32), # (Tp, Da)
             # "action_is_pad": np.array(data["action_is_pad"], dtype=bool),
             "instruction": data["task"].lower(),

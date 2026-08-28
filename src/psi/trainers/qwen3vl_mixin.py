@@ -120,14 +120,19 @@ class PaddedCollatorForTogether:
         else:
             raise ValueError(f"Unsupported pixel_values type: {type(pixel_values[0])}")
 
-        # Stack image_grid_thw
-        image_grid_thw = torch.stack([instance["image_grid_thw"].squeeze(0) for instance in instances])
+        # Flatten image_grid_thw across the batch into (total_num_images, 3), as HF
+        # Qwen3-VL expects one row per image. Each instance carries (num_images, 3) where
+        # num_images = num_past_frames + 1; at num_past_frames=0 this is (B, 3), identical
+        # to the previous stack(squeeze(0)) behavior.
+        image_grid_thw = torch.cat(
+            [instance["image_grid_thw"].reshape(-1, 3) for instance in instances], dim=0
+        )
 
         # Build output
         output = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "pixel_values": pixel_values, 
+            "pixel_values": pixel_values,
             "image_grid_thw": image_grid_thw,
         }
         if dataset_names is not None:

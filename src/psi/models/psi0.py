@@ -1686,12 +1686,12 @@ class Psi0Model(nn.Module):
             batch_input_ids.append(inputs['input_ids'].squeeze(0))
             batch_attention_mask.append(inputs['attention_mask'].squeeze(0))
             batch_pixel_values.append(inputs['pixel_values'])
-            batch_image_grid_thw.append(inputs['image_grid_thw'].squeeze(0))
+            batch_image_grid_thw.append(inputs['image_grid_thw'].reshape(-1, 3))
 
         batch_input_ids = torch.stack(batch_input_ids) # (B, 80)
         batch_attention_mask = torch.stack(batch_attention_mask) # (B, 80)
         batch_pixel_values = torch.stack(batch_pixel_values) # (B, 256, 1536)
-        batch_image_grid_thw = torch.stack(batch_image_grid_thw) # (B, 3)
+        batch_image_grid_thw = torch.cat(batch_image_grid_thw, dim=0) # (total_images, 3); handles image history (To>1)
 
         with torch.autocast("cuda", dtype=torch.bfloat16):
             # extract vision + language features
@@ -1800,12 +1800,12 @@ class Psi0Model(nn.Module):
             batch_input_ids.append(inputs['input_ids'].squeeze(0))
             batch_attention_mask.append(inputs['attention_mask'].squeeze(0))
             batch_pixel_values.append(inputs['pixel_values'])
-            batch_image_grid_thw.append(inputs['image_grid_thw'].squeeze(0))
+            batch_image_grid_thw.append(inputs['image_grid_thw'].reshape(-1, 3))
 
         batch_input_ids = torch.stack(batch_input_ids) # (B, 80)
         batch_attention_mask = torch.stack(batch_attention_mask) # (B, 80)
         batch_pixel_values = torch.stack(batch_pixel_values) # (B, 256, 1536)
-        batch_image_grid_thw = torch.stack(batch_image_grid_thw) # (B, 3)
+        batch_image_grid_thw = torch.cat(batch_image_grid_thw, dim=0) # (total_images, 3); handles image history (To>1)
 
         with torch.autocast("cuda", dtype=torch.bfloat16):
             # extract vision + language features
@@ -1933,12 +1933,12 @@ class Psi0Model(nn.Module):
                 batch_input_ids.append(inputs['input_ids'].squeeze(0))
                 batch_attention_mask.append(inputs['attention_mask'].squeeze(0))
                 batch_pixel_values.append(inputs['pixel_values'])
-                batch_image_grid_thw.append(inputs['image_grid_thw'].squeeze(0))
+                batch_image_grid_thw.append(inputs['image_grid_thw'].reshape(-1, 3))
 
             batch_input_ids = torch.stack(batch_input_ids) # (B, 80)
             batch_attention_mask = torch.stack(batch_attention_mask) # (B, 80)
             batch_pixel_values = torch.stack(batch_pixel_values) # (B, 256, 1536)
-            batch_image_grid_thw = torch.stack(batch_image_grid_thw) # (B, 3)
+            batch_image_grid_thw = torch.cat(batch_image_grid_thw, dim=0) # (total_images, 3); handles image history (To>1)
 
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 # extract vision + language features
@@ -2115,12 +2115,12 @@ class Psi0Model(nn.Module):
                 batch_input_ids.append(inputs['input_ids'].squeeze(0))
                 batch_attention_mask.append(inputs['attention_mask'].squeeze(0))
                 batch_pixel_values.append(inputs['pixel_values'])
-                batch_image_grid_thw.append(inputs['image_grid_thw'].squeeze(0))
+                batch_image_grid_thw.append(inputs['image_grid_thw'].reshape(-1, 3))
 
             batch_input_ids = torch.stack(batch_input_ids) # (B, 80)
             batch_attention_mask = torch.stack(batch_attention_mask) # (B, 80)
             batch_pixel_values = torch.stack(batch_pixel_values) # (B, 256, 1536)
-            batch_image_grid_thw = torch.stack(batch_image_grid_thw) # (B, 3)
+            batch_image_grid_thw = torch.cat(batch_image_grid_thw, dim=0) # (total_images, 3); handles image history (To>1)
 
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 # extract vision + language features
@@ -2260,12 +2260,12 @@ class Psi0Model(nn.Module):
                 batch_input_ids.append(inputs['input_ids'].squeeze(0))
                 batch_attention_mask.append(inputs['attention_mask'].squeeze(0))
                 batch_pixel_values.append(inputs['pixel_values'])
-                batch_image_grid_thw.append(inputs['image_grid_thw'].squeeze(0))
+                batch_image_grid_thw.append(inputs['image_grid_thw'].reshape(-1, 3))
 
             batch_input_ids = torch.stack(batch_input_ids) # (B, 80)
             batch_attention_mask = torch.stack(batch_attention_mask) # (B, 80)
             batch_pixel_values = torch.stack(batch_pixel_values) # (B, 256, 1536)
-            batch_image_grid_thw = torch.stack(batch_image_grid_thw) # (B, 3)
+            batch_image_grid_thw = torch.cat(batch_image_grid_thw, dim=0) # (total_images, 3); handles image history (To>1)
 
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 # extract vision + language features
